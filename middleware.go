@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/labstack/echo"
 	"github.com/labstack/gommon/log"
+	"github.com/sirupsen/logrus"
 )
 
 type Logger struct {
@@ -91,6 +91,11 @@ func (l Logger) Fatalj(j log.JSON) {
 
 func (l Logger) Panicj(j log.JSON) {
 	logrus.WithFields(logrus.Fields(j)).Panic()
+}
+
+func (l Logger) SetHeader(header string) {
+	// TODO:
+	logrus.Debug("SetHeader called with %s", header)
 }
 
 func logrusMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
