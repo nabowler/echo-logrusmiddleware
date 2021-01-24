@@ -1,108 +1,19 @@
 package logrusmiddleware
 
 import (
-	"io"
 	"strconv"
 	"time"
 
-	"github.com/labstack/echo"
-	"github.com/labstack/gommon/log"
+	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 )
-
-type Logger struct {
-	*logrus.Logger
-}
-
-func (l Logger) Level() log.Lvl {
-	switch l.Logger.Level {
-	case logrus.DebugLevel:
-		return log.DEBUG
-	case logrus.WarnLevel:
-		return log.WARN
-	case logrus.ErrorLevel:
-		return log.ERROR
-	case logrus.InfoLevel:
-		return log.INFO
-	default:
-		l.Panic("Invalid level")
-	}
-
-	return log.OFF
-}
-
-func (l Logger) SetPrefix(s string) {
-	// TODO
-}
-
-func (l Logger) Prefix() string {
-	// TODO.  Is this even valid?  I'm not sure it can be translated since
-	// logrus uses a Formatter interface.  Which seems to me to probably be
-	// a better way to do it.
-	return ""
-}
-
-func (l Logger) SetLevel(lvl log.Lvl) {
-	switch lvl {
-	case log.DEBUG:
-		logrus.SetLevel(logrus.DebugLevel)
-	case log.WARN:
-		logrus.SetLevel(logrus.WarnLevel)
-	case log.ERROR:
-		logrus.SetLevel(logrus.ErrorLevel)
-	case log.INFO:
-		logrus.SetLevel(logrus.InfoLevel)
-	default:
-		l.Panic("Invalid level")
-	}
-}
-
-func (l Logger) Output() io.Writer {
-	return l.Out
-}
-
-func (l Logger) SetOutput(w io.Writer) {
-	logrus.SetOutput(w)
-}
-
-func (l Logger) Printj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Print()
-}
-
-func (l Logger) Debugj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Debug()
-}
-
-func (l Logger) Infoj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Info()
-}
-
-func (l Logger) Warnj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Warn()
-}
-
-func (l Logger) Errorj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Error()
-}
-
-func (l Logger) Fatalj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Fatal()
-}
-
-func (l Logger) Panicj(j log.JSON) {
-	logrus.WithFields(logrus.Fields(j)).Panic()
-}
-
-func (l Logger) SetHeader(header string) {
-	// TODO:
-	logrus.Debug("SetHeader called with %s", header)
-}
 
 func logrusMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
 	req := c.Request()
 	res := c.Response()
 	start := time.Now()
-	if err := next(c); err != nil {
+	var err error
+	if err = next(c); err != nil {
 		c.Error(err)
 	}
 	stop := time.Now()
@@ -112,14 +23,31 @@ func logrusMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
 		p = "/"
 	}
 
+	var userID string
+	useridIn := c.Get("userid")
+	if useridIn != nil {
+		var ok bool
+		userID, ok = useridIn.(string)
+		if !ok {
+			userID = ""
+		}
+	}
+
 	bytesIn := req.Header.Get(echo.HeaderContentLength)
 	if bytesIn == "" {
 		bytesIn = "0"
 	}
 
-	logrus.WithFields(map[string]interface{}{
+	xff := req.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		xff = c.RealIP()
+	}
+
+	entry := logrus.WithFields(logrus.Fields{
 		"time_rfc3339":  time.Now().Format(time.RFC3339),
+		"remoteIP":      xff,
 		"remote_ip":     c.RealIP(),
+		"userId":        userID,
 		"host":          req.Host,
 		"uri":           req.RequestURI,
 		"method":        req.Method,
@@ -131,7 +59,13 @@ func logrusMiddlewareHandler(c echo.Context, next echo.HandlerFunc) error {
 		"latency_human": stop.Sub(start).String(),
 		"bytes_in":      bytesIn,
 		"bytes_out":     strconv.FormatInt(res.Size, 10),
-	}).Info("Handled request")
+	})
+
+	if err != nil {
+		entry = entry.WithError(err)
+	}
+
+	entry.Info("Handled request")
 
 	return nil
 }
@@ -142,6 +76,7 @@ func logger(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+// Hook returns an echo.MiddlewareFunc that logs desired information using the logrus StandardLogger
 func Hook() echo.MiddlewareFunc {
 	return logger
 }
